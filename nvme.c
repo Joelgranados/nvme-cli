@@ -2993,15 +2993,27 @@ static int create_ns(int argc, char **argv, struct command *cmd, struct plugin *
 	const char *nvmsetid = "NVM Set Identifier (NVMSETID)";
 	const char *csi = "command set identifier (CSI)";
 	const char *lbstm = "logical block storage tag mask (LBSTM)";
+	const char *nphndls = "Number of Placement Handles (NPHNDLS)";
 	const char *bs = "target block size, specify only if \'FLBAS\' "\
 		"value not entered";
 	const char *nsze_si = "size of ns (NSZE) in standard SI units";
 	const char *ncap_si = "capacity of ns (NCAP) in standard SI units";
+	const char *azr = "Allocate ZRWA Resources (AZR) for "\
+		"Zoned Namespace Command Set";
+	const char *rar = "Requested Active Resources (RAR) for "\
+		"Zoned Namespace Command Set";
+	const char *ror = "Requested Open Resources (ROR) for "\
+		"Zoned Namespace Command Set";
+	const char *rnumzrwa = "Requested Number of ZRWA Resources (RNUMZRWA) for "\
+		"Zoned Namespace Command Set";
+	const char *phndls = "Comma separated list of Placement Handle "\
+		"Associated RUH";
 
 	struct nvme_id_ns ns;
 	struct nvme_dev *dev;
 	int err = 0, i;
 	__u32 nsid;
+	uint16_t num_phandle;
 
 	struct config {
 		__u64	nsze;
@@ -3015,8 +3027,14 @@ static int create_ns(int argc, char **argv, struct command *cmd, struct plugin *
 		__u32	timeout;
 		__u8	csi;
 		__u64	lbstm;
+		__u16	nphndls;
 		char	*nsze_si;
 		char	*ncap_si;
+		bool	azr;
+		__u32	rar;
+		__u32	ror;
+		__u32	rnumzrwa;
+		char	*phndls;
 	};
 
 	struct config cfg = {
@@ -3027,12 +3045,18 @@ static int create_ns(int argc, char **argv, struct command *cmd, struct plugin *
 		.nmic		= 0,
 		.anagrpid	= 0,
 		.nvmsetid	= 0,
-		.bs		= 0x00,
+		.bs			= 0x00,
 		.timeout	= 120000,
 		.csi		= 0,
 		.lbstm		= 0,
+		.nphndls	= 0,
 		.nsze_si	= NULL,
 		.ncap_si	= NULL,
+		.azr		= false,
+		.rar		= 0,
+		.ror		= 0,
+		.rnumzrwa	= 0,
+		.phndls		= "",
 	};
 
 	OPT_ARGS(opts) = {
@@ -3047,8 +3071,14 @@ static int create_ns(int argc, char **argv, struct command *cmd, struct plugin *
 		OPT_UINT("timeout",      't', &cfg.timeout,  timeout),
 		OPT_BYTE("csi",          'y', &cfg.csi,      csi),
 		OPT_SUFFIX("lbstm",      'l', &cfg.lbstm,    lbstm),
+		OPT_SHRT("nphndls",	     'n', &cfg.nphndls,  nphndls),
 		OPT_STR("nsze-si",       'S', &cfg.nsze_si,  nsze_si),
 		OPT_STR("ncap-si",       'C', &cfg.ncap_si,  ncap_si),
+		OPT_FLAG("azr",          'z', &cfg.azr,      azr),
+		OPT_UINT("rar",          'r', &cfg.rar,      rar),
+		OPT_UINT("ror",          'o', &cfg.ror,      ror),
+		OPT_UINT("rnumzrwa",     'u', &cfg.rnumzrwa, rnumzrwa),
+		OPT_LIST("phndls",	     'p', &cfg.phndls,   phndls),
 		OPT_END()
 	};
 
@@ -3108,7 +3138,14 @@ static int create_ns(int argc, char **argv, struct command *cmd, struct plugin *
 	if (err)
 		goto close_dev;
 
-	struct nvme_id_ns ns2 = {
+	if (cfg.csi != NVME_CSI_ZNS &&
+		(cfg.azr || cfg.rar || cfg.ror|| cfg.rnumzrwa)) {
+		fprintf(stderr, "Invaild ZNS argument is given (CSI:%#x)\n", cfg.csi);
+		err = -EINVAL;
+		goto close_dev;
+	}
+
+	struct nvme_ns_mgmt_host_sw_specified data = {
 		.nsze = cpu_to_le64(cfg.nsze),
 		.ncap = cpu_to_le64(cfg.ncap),
 		.flbas = cfg.flbas,
@@ -3117,9 +3154,21 @@ static int create_ns(int argc, char **argv, struct command *cmd, struct plugin *
 		.anagrpid = cpu_to_le32(cfg.anagrpid),
 		.nvmsetid = cpu_to_le16(cfg.nvmsetid),
 		.lbstm = cpu_to_le64(cfg.lbstm),
+		.zns.znsco = cfg.azr,
+		.zns.rar = cpu_to_le32(cfg.rar),
+		.zns.ror = cpu_to_le32(cfg.ror),
+		.zns.rnumzrwa = cpu_to_le32(cfg.rnumzrwa),
+		.nphndls = cpu_to_le16(cfg.nphndls),
 	};
 
-	err = nvme_cli_ns_mgmt_create(dev, &ns2, &nsid, cfg.timeout, cfg.csi);
+	num_phandle = argconfig_parse_comma_sep_array_short(cfg.phndls, (unsigned short *)data.phndl, ARRAY_SIZE(data.phndl));
+	if (cfg.nphndls != num_phandle) {
+		fprintf(stderr, "Invaild Placement handle list\n");
+		err = -EINVAL;
+		goto close_dev;
+	}
+
+	err = nvme_cli_ns_mgmt_create(dev, &data, &nsid, cfg.timeout, cfg.csi);
 	if (!err)
 		printf("%s: Success, created nsid:%d\n", cmd->name, nsid);
 	else if (err > 0)
