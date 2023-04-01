@@ -3168,7 +3168,7 @@ static int create_ns(int argc, char **argv, struct command *cmd, struct plugin *
 		goto close_dev;
 	}
 
-	err = nvme_cli_ns_mgmt_create(dev, &data, &nsid, cfg.timeout, cfg.csi);
+	err = nvme_cli_ns_mgmt_create(dev, &ns, &data, &nsid, cfg.timeout, cfg.csi);
 	if (!err)
 		printf("%s: Success, created nsid:%d\n", cmd->name, nsid);
 	else if (err > 0)

@@ -33,6 +33,7 @@ int nvme_cli_identify_secondary_ctrl_list(struct nvme_dev *dev, __u32 nsid,
 					  struct nvme_secondary_ctrl_list *sc_list);
 int nvme_cli_ns_mgmt_delete(struct nvme_dev *dev, __u32 nsid);
 int nvme_cli_ns_mgmt_create(struct nvme_dev *dev,
+			struct nvme_id_ns *ns,
 			struct nvme_ns_mgmt_host_sw_specified *data,
 			__u32 *nsid, __u32 timeout, __u8 csi);
 
